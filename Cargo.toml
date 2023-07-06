@@ -10,3 +10,5 @@ anyhow = "1.0.71"
 reqwest = { version = "0.11.18", features = ["blocking"] }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.6.3", features = ["mysql", "runtime-tokio-native-tls"] }
+csv = "1.2.2"
+serde = { version = "^1.0.101", features = ["derive"] }
