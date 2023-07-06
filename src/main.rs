@@ -17,28 +17,41 @@ struct Boardgame {
     thumbnail_url: String,
 }
 
+async fn download_csv(url: &str) -> Result<String> {
+    reqwest::get(url).await?.text().await.map_err(|_error| anyhow::anyhow!("Failed to download CSV."))
+}
+
+fn save_csv(file_name: &str, header: &str, content: String) -> Result<()> {
+    let csv_file = File::create(file_name)?;
+    let mut writer = BufWriter::new(csv_file);
+
+    let mut content_copy = content.clone();
+     // ヘッダーを置き換え
+    if let Some(index) = content_copy.find('\n') {
+        content_copy.replace_range(..=index, header);
+    }
+
+    writer.write(content_copy.as_bytes())?;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // GitHubからcsvを取得
     let url =
         "https://raw.githubusercontent.com/beefsack/bgg-ranking-historicals/master/2023-06-29.csv";
-    let mut body = reqwest::get(url).await?.text().await?;
+    let csv_content = download_csv(url).await?;
 
-    let csf_file = File::create("2023-06-29.csv")?;
-    let mut writer = BufWriter::new(csf_file);
     let header = "id,name,published_year,boardgame_geek_rank,average_rating,bayes_average_rating,users_rated,boardgame_geek_url,thumbnail_url\n";
-    writer.write(header.as_bytes())?;
-    if let Some(index) = body.find('\n') {
-        body.replace_range(..=index, ""); // 最初の改行までの文字列を削除
-    }
-    writer.write(body.as_bytes())?;
+    let saved_file_name = "bgg_ranking.csv";
+    save_csv(saved_file_name, header, csv_content)?;
 
     // DBと接続
     let mut connection =
         MySqlConnection::connect("mysql://root:@localhost:3306/bgg_seeder").await?;
 
     // csvを解析してDBへいれる
-    let file = File::open("2023-06-29.csv")?;
+    let file = File::open(saved_file_name)?;
     let reader = BufReader::new(file);
     let mut rdr = csv::Reader::from_reader(reader);
 
