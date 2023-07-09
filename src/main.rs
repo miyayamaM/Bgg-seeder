@@ -1,17 +1,20 @@
 use anyhow::Result;
+use chrono::Utc;
 use serde::Deserialize;
 use sqlx::{Connection, MySqlConnection};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
 use xml::reader::{EventReader, XmlEvent};
 
+const BOARDGAMEGEEK_ITEMS_CSV_ENDPOINT: &str =
+    "https://raw.githubusercontent.com/beefsack/bgg-ranking-historicals/master/";
 const BOARDGAMEGEEK_XML_API_ENDPOINT: &str = "https://boardgamegeek.com/xmlapi/boardgame/";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let utc_today = Utc::now().format("%Y-%m-%d").to_string();
     // GitHubからcsvを取得
-    let url =
-        "https://raw.githubusercontent.com/beefsack/bgg-ranking-historicals/master/2023-06-29.csv";
+    let url = format!("{}{}.csv", BOARDGAMEGEEK_ITEMS_CSV_ENDPOINT, utc_today);
     let response_body = reqwest::get(url).await?.text().await?;
 
     let header = "id,name,published_year,boardgame_geek_rank,average_rating,bayes_average_rating,users_rated,boardgame_geek_url,thumbnail_url\n";
