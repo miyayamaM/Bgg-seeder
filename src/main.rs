@@ -26,20 +26,24 @@ async fn main() -> Result<()> {
     let file = File::open(saved_file_name)?;
     let reader = BufReader::new(file);
     let mut rdr = csv::Reader::from_reader(reader);
+    let client = reqwest::Client::new();
 
     for record in rdr.deserialize() {
         let boardgame: Boardgame = record?;
 
         //boardgamegeek APIからプレイ人数とプレイ時間を取得
-        let response = reqwest::get(format!(
-            "{}{}",
-            BOARDGAMEGEEK_XML_API_ENDPOINT,
-            boardgame.id.to_string()
-        ))
-        .await?
-        .text()
-        .await?;
-        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+        let response = client
+            .get(format!(
+                "{}{}",
+                BOARDGAMEGEEK_XML_API_ENDPOINT,
+                boardgame.id.to_string()
+            ))
+            .query(&[("stats", "1")])
+            .send()
+            .await?
+            .text()
+            .await?;
+        tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
         sqlx::query!(
             r#"
@@ -52,9 +56,14 @@ async fn main() -> Result<()> {
                     bayes_average_rating,
                     users_rated,
                     boardgame_geek_url,
-                    thumbnail_url
+                    thumbnail_url,
+                    min_players,
+                    max_players,
+                    min_playing_time,
+                    max_playing_time,
+                    average_weight
                 )
-                VALUES(?,?,?,?,?,?,?,?,?);
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?);
             "#,
             boardgame.id,
             boardgame.name,
@@ -64,7 +73,12 @@ async fn main() -> Result<()> {
             boardgame.bayes_average_rating,
             boardgame.users_rated,
             boardgame.boardgame_geek_url,
-            boardgame.thumbnail_url
+            boardgame.thumbnail_url,
+            get_value_from_xml(&response, "minplayers"),
+            get_value_from_xml(&response, "maxplayers"),
+            get_value_from_xml(&response, "minplaytime"),
+            get_value_from_xml(&response, "maxplaytime"),
+            get_value_from_xml(&response, "averageweight")
         )
         .execute(&mut connection)
         .await?;
