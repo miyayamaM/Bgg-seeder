@@ -13,8 +13,9 @@ const BOARDGAMEGEEK_XML_API_ENDPOINT: &str = "https://boardgamegeek.com/xmlapi/b
 #[tokio::main]
 async fn main() -> Result<()> {
     let utc_today = Utc::now().format("%Y-%m-%d").to_string();
+    let csv_file_name = format!("{}.csv", utc_today);
     // GitHubからcsvを取得
-    let url = format!("{}{}.csv", BOARDGAMEGEEK_ITEMS_CSV_ENDPOINT, utc_today);
+    let url = format!("{}{}", BOARDGAMEGEEK_ITEMS_CSV_ENDPOINT, csv_file_name);
     let response_body = reqwest::get(url).await?.text().await?;
 
     let header = "id,name,published_year,boardgame_geek_rank,average_rating,bayes_average_rating,users_rated,boardgame_geek_url,thumbnail_url\n";
