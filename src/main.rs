@@ -3,6 +3,74 @@ use serde::Deserialize;
 use sqlx::{Connection, MySqlConnection};
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Write};
+use xml::reader::{EventReader, XmlEvent};
+
+const BOARDGAMEGEEK_XML_API_ENDPOINT: &str = "https://boardgamegeek.com/xmlapi/boardgame/";
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // GitHubからcsvを取得
+    let url =
+        "https://raw.githubusercontent.com/beefsack/bgg-ranking-historicals/master/2023-06-29.csv";
+    let response_body = reqwest::get(url).await?.text().await?;
+
+    let header = "id,name,published_year,boardgame_geek_rank,average_rating,bayes_average_rating,users_rated,boardgame_geek_url,thumbnail_url\n";
+    let saved_file_name = "bgg_ranking.csv";
+    save_csv(saved_file_name, header, response_body)?;
+
+    // DBと接続
+    let mut connection =
+        MySqlConnection::connect("mysql://root:@localhost:3306/bgg_seeder").await?;
+
+    // csvを解析してDBへいれる
+    let file = File::open(saved_file_name)?;
+    let reader = BufReader::new(file);
+    let mut rdr = csv::Reader::from_reader(reader);
+
+    for record in rdr.deserialize() {
+        let boardgame: Boardgame = record?;
+
+        //boardgamegeek APIからプレイ人数とプレイ時間を取得
+        let response = reqwest::get(format!(
+            "{}{}",
+            BOARDGAMEGEEK_XML_API_ENDPOINT,
+            boardgame.id.to_string()
+        ))
+        .await?
+        .text()
+        .await?;
+        tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+
+        sqlx::query!(
+            r#"
+                INSERT INTO boardgames(
+                    id,
+                    name,
+                    published_year,
+                    boardgame_geek_rank,
+                    average_rating,
+                    bayes_average_rating,
+                    users_rated,
+                    boardgame_geek_url,
+                    thumbnail_url
+                )
+                VALUES(?,?,?,?,?,?,?,?,?);
+            "#,
+            boardgame.id,
+            boardgame.name,
+            boardgame.published_year,
+            boardgame.boardgame_geek_rank,
+            boardgame.average_rating,
+            boardgame.bayes_average_rating,
+            boardgame.users_rated,
+            boardgame.boardgame_geek_url,
+            boardgame.thumbnail_url
+        )
+        .execute(&mut connection)
+        .await?;
+    }
+    Ok(())
+}
 
 #[derive(Deserialize)]
 struct Boardgame {
@@ -30,56 +98,24 @@ fn save_csv(file_name: &str, header: &str, response_body: String) -> Result<()> 
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // GitHubからcsvを取得
-    let url =
-        "https://raw.githubusercontent.com/beefsack/bgg-ranking-historicals/master/2023-06-29.csv";
-    let response_body = reqwest::get(url).await?.text().await?;
+fn get_value_from_xml(xml_text: &str, target_key: &str) -> Option<String> {
+    let parser = EventReader::new(xml_text.as_bytes());
+    let mut is_found = false;
 
-    let header = "id,name,published_year,boardgame_geek_rank,average_rating,bayes_average_rating,users_rated,boardgame_geek_url,thumbnail_url\n";
-    let saved_file_name = "bgg_ranking.csv";
-    save_csv(saved_file_name, header, response_body)?;
-
-    // DBと接続
-    let mut connection =
-        MySqlConnection::connect("mysql://root:@localhost:3306/bgg_seeder").await?;
-
-    // csvを解析してDBへいれる
-    let file = File::open(saved_file_name)?;
-    let reader = BufReader::new(file);
-    let mut rdr = csv::Reader::from_reader(reader);
-
-    for record in rdr.deserialize() {
-        let record: Boardgame = record?;
-
-        sqlx::query!(
-            r#"
-                INSERT INTO boardgames(
-                    id,
-                    name,
-                    published_year,
-                    boardgame_geek_rank,
-                    average_rating,
-                    bayes_average_rating,
-                    users_rated,
-                    boardgame_geek_url,
-                    thumbnail_url
-                )
-                VALUES(?,?,?,?,?,?,?,?,?);
-            "#,
-            record.id,
-            record.name,
-            record.published_year,
-            record.boardgame_geek_rank,
-            record.average_rating,
-            record.bayes_average_rating,
-            record.users_rated,
-            record.boardgame_geek_url,
-            record.thumbnail_url
-        )
-        .execute(&mut connection)
-        .await?;
+    for element in parser {
+        match element {
+            Ok(XmlEvent::StartElement { name, .. }) => {
+                if name.local_name == target_key {
+                    is_found = true;
+                }
+            }
+            Ok(XmlEvent::Characters(xml_value)) => {
+                if is_found {
+                    return Some(xml_value);
+                }
+            }
+            _ => {}
+        }
     }
-    Ok(())
+    None
 }
