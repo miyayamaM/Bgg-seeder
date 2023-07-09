@@ -122,15 +122,12 @@ fn get_value_from_xml(xml_text: &str, target_key: &str) -> Option<String> {
 
     for element in parser {
         match element {
-            Ok(XmlEvent::StartElement { name, .. }) => {
-                if name.local_name == target_key {
-                    is_found = true;
-                }
+            Ok(XmlEvent::StartElement { name, .. }) if name.local_name == target_key => {
+                is_found = true;
             }
-            Ok(XmlEvent::Characters(xml_value)) => {
-                if is_found {
-                    return Some(xml_value);
-                }
+            Ok(XmlEvent::Characters(xml_value)) if is_found => return Some(xml_value),
+            Ok(XmlEvent::EndElement { name, .. }) if name.local_name == target_key => {
+                break;
             }
             _ => {}
         }
